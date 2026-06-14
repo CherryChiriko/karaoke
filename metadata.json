@@ -1,0 +1,6 @@
+{
+  "name": "Karaoke",
+  "description": "Visual Pitch Room & Real-Time Vocal Tracker with interactive song alignment, lyrics, and evaluation scoring system.",
+  "requestFramePermissions": ["microphone"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

@@ -1,37 +1,3 @@
-import React, { useState, useEffect, useRef, useMemo } from "react";
-import {
-  Play,
-  Pause,
-  RotateCcw,
-  Music,
-  Award,
-  Terminal,
-  X,
-  Radio,
-  ListRestart,
-} from "lucide-react";
-import {
-  SONG_LIBRARY,
-  getStandardPitch,
-  getCurrentPitch,
-  getTotalScore,
-  requestResource,
-  getNoteNotation,
-  midiToHz,
-} from "./lib/sdk";
-import { Song, PitchPoint, QueueState, ScoreState } from "./types";
-import { CornerFrame } from "./components/General/ui/CornerFrame";
-import { LyricsSection } from "./components/Lyrics/components/LyricsSection";
-import { SongQueueSection } from "./components/Songs/components/SongQueueSection";
-
-import { MicInputSection } from "./components/Mic/components/MicInputSection";
-import { useAudioRecorder } from "./components/Mic/hooks/useAudioRecorder";
-import { PitchSection } from "./components/Pitch/components/PitchSection";
-import { Header } from "./components/Header/Header";
-import { useMediaPlayback } from "./components/MediaPlayback/hooks/useMediaPlayback";
-import { TrackMetadataSection } from "./components/MediaPlayback/components/TrackMetadataSection";
-
-export default function App() {
   // Navigation & Preferences
   const [activeTab, setActiveTab] = useState<"SING" | "HISTORY">("SING");
   const [showHelp, setShowHelp] = useState<boolean>(false);
@@ -43,77 +9,52 @@ export default function App() {
   const [tempoBpm, setTempoBpm] = useState<number>(120);
 
   // Queue State for individual library songs
-  const [queueStates, setQueueStates] = useState<
-    Record<string, { state: QueueState; progress: number }>
-  >({
+  const [queueStates, setQueueStates] = useState<Record<string, { state: QueueState; progress: number }>>({
     neon_drift: { state: "IDLE", progress: 0 },
     midnight_circuit: { state: "IDLE", progress: 0 },
-    chromatic_bloom: { state: "IDLE", progress: 0 },
+    chromatic_bloom: { state: "IDLE", progress: 0 }
   });
 
   // Physical Microphoning & Simulated Vocalist Toggle
   const [isMicEnabled, setIsMicEnabled] = useState<boolean>(false);
-  const { micVolume, micStatusLog, startMicNode, stopMicNode } =
-    useAudioRecorder(isMicEnabled, setIsMicEnabled);
-
+  const [isMuted, setIsMuted] = useState<boolean>(false);
   const [isSimulatedSinger, setIsSimulatedSinger] = useState<boolean>(true); // Simulated is active by default for pleasant evaluation out-of-the-box
 
   // Pitch tracking results
-  const [detectedPitch, setDetectedPitch] = useState<{
-    midi: number;
-    hz: number;
-    isMatched: boolean;
-  } | null>(null);
+  const [detectedPitch, setDetectedPitch] = useState<{ midi: number; hz: number; isMatched: boolean } | null>(null);
   const [targetMidi, setTargetMidi] = useState<number | null>(null);
   const [userPitchHistory, setUserPitchHistory] = useState<PitchPoint[]>([]);
+
+  // Mic DB amplitude meters
+  const [micVolume, setMicVolume] = useState<number>(0); // values from 0 to 100 for level indicator
+  const [micStatusLog, setMicStatusLog] = useState<string>("VIRTUAL FEEDBACK READY");
 
   // Scoring details
   const [scoreState, setScoreState] = useState<ScoreState>({
     currentLineIndex: -1,
     lineScores: {},
     totalScore: 0,
-    rank: "--",
+    rank: "--"
   });
   const [showScoreModal, setShowScoreModal] = useState<boolean>(false);
 
   // Completed Session Log to preserve scores
-  const [sessionLogs, setSessionLogs] = useState<
-    {
-      songTitle: string;
-      artist: string;
-      date: string;
-      score: number;
-      rank: string;
-    }[]
-  >([
-    {
-      songTitle: "Neon Drift",
-      artist: "Synthia Vane",
-      date: "June 12, 2026",
-      score: 88,
-      rank: "A",
-    },
-    {
-      songTitle: "Midnight Circuit",
-      artist: "Pixel Pulse",
-      date: "June 13, 2026",
-      score: 64,
-      rank: "B",
-    },
+  const [sessionLogs, setSessionLogs] = useState<{ songTitle: string; artist: string; date: string; score: number; rank: string }[]>([
+    { songTitle: "Neon Drift", artist: "Synthia Vane", date: "June 12, 2026", score: 88, rank: "A" },
+    { songTitle: "Midnight Circuit", artist: "Pixel Pulse", date: "June 13, 2026", score: 64, rank: "B" }
   ]);
 
   // Audio Context Ref structure
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const timerRef = useRef<any>(null);
   const animationFrameRef = useRef<number | null>(null);
 
   // References for Canvas Size Adaptation
   const canvasContainerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [canvasDimensions, setCanvasDimensions] = useState({
-    width: 800,
-    height: 280,
-  });
+  const [canvasDimensions, setCanvasDimensions] = useState({ width: 800, height: 280 });
 
   // Synced refs to prevent closures from trapping stale states in requestAnimationFrame hook loops
   const stateRef = useRef({
@@ -123,15 +64,8 @@ export default function App() {
     isSimulatedSinger: true,
     isMicEnabled: false,
     userPitchHistory: [] as PitchPoint[],
-    detectedPitch: null as {
-      midi: number;
-      hz: number;
-      isMatched: boolean;
-    } | null,
-    scoreState: {
-      currentLineIndex: -1,
-      lineScores: {} as Record<number, number>,
-    },
+    detectedPitch: null as { midi: number; hz: number; isMatched: boolean } | null,
+    scoreState: { currentLineIndex: -1, lineScores: {} as Record<number, number> }
   });
 
   useEffect(() => {
@@ -144,18 +78,9 @@ export default function App() {
     stateRef.current.detectedPitch = detectedPitch;
     stateRef.current.scoreState = {
       currentLineIndex: scoreState.currentLineIndex,
-      lineScores: scoreState.lineScores,
+      lineScores: scoreState.lineScores
     };
-  }, [
-    isPlaying,
-    currentTime,
-    activeSong,
-    isSimulatedSinger,
-    isMicEnabled,
-    userPitchHistory,
-    detectedPitch,
-    scoreState,
-  ]);
+  }, [isPlaying, currentTime, activeSong, isSimulatedSinger, isMicEnabled, userPitchHistory, detectedPitch, scoreState]);
 
   // Adapt to Canvas Div modifications using standard ResizeObserver
   useEffect(() => {
@@ -165,7 +90,7 @@ export default function App() {
         const { width, height } = entry.contentRect;
         setCanvasDimensions({
           width: Math.max(width, 400),
-          height: Math.max(height, 200),
+          height: Math.max(height, 200)
         });
       }
     });
@@ -173,26 +98,92 @@ export default function App() {
     return () => observer.disconnect();
   }, []);
 
+  // Physically activate raw microphone input using browser AudioContext
+  const startMicNode = async () => {
+    try {
+      setMicStatusLog("INITIALIZING MICROPHONE...");
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      }
+
+      // Resume context if browser suspended it (standard requirement)
+      if (audioCtxRef.current.state === "suspended") {
+        await audioCtxRef.current.resume();
+      }
+
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true
+        }
+      });
+
+      micStreamRef.current = stream;
+      const source = audioCtxRef.current.createMediaStreamSource(stream);
+      const analyser = audioCtxRef.current.createAnalyser();
+      analyser.fftSize = 2048;
+      source.connect(analyser);
+      analyserRef.current = analyser;
+
+      setIsMicEnabled(true);
+      setMicStatusLog("MICROPHONE LEVEL RAW CHANNEL ACTIVE");
+
+      // Continuously measure input volume
+      const bufferLength = analyser.frequencyBinCount;
+      const dataArray = new Uint8Array(bufferLength);
+      const updateVolume = () => {
+        if (!analyserRef.current) return;
+        analyserRef.current.getByteFrequencyData(dataArray);
+        let sum = 0;
+        for (let i = 0; i < bufferLength; i++) {
+          sum += dataArray[i];
+        }
+        const val = Math.min(100, Math.round((sum / bufferLength) * 1.8));
+        setMicVolume(val);
+        if (stateRef.current.isMicEnabled) {
+          requestAnimationFrame(updateVolume);
+        }
+      };
+      updateVolume();
+    } catch (err: any) {
+      console.warn("Microphone permissions rejected or unavailable:", err);
+      setMicStatusLog(`MIC ERROR: UNABLE TO BIND RAW CAPTURE (${err.message || 'Permission denied'})`);
+      setIsMicEnabled(false);
+    }
+  };
+
+  const stopMicNode = () => {
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+    analyserRef.current = null;
+    setIsMicEnabled(false);
+    setMicVolume(0);
+    setMicStatusLog("MICROPHONE CHANNEL DISCONNECTED");
+  };
+
   // Ordering handler calling requestResource
   const handleOrderSong = async (songId: string) => {
     if (queueStates[songId]?.state !== "IDLE") return;
 
     setQueueStates((prev) => ({
       ...prev,
-      [songId]: { state: "DOWNLOADING", progress: 0 },
+      [songId]: { state: "DOWNLOADING", progress: 0 }
     }));
 
     const result = await requestResource(songId, (p) => {
       setQueueStates((prev) => ({
         ...prev,
-        [songId]: { state: "DOWNLOADING", progress: p },
+        [songId]: { state: "DOWNLOADING", progress: p }
       }));
     });
 
     if (result) {
       setQueueStates((prev) => ({
         ...prev,
-        [songId]: { state: "READY", progress: 100 },
+        [songId]: { state: "READY", progress: 100 }
       }));
     }
   };
@@ -211,7 +202,7 @@ export default function App() {
       currentLineIndex: -1,
       lineScores: {},
       totalScore: 0,
-      rank: "--",
+      rank: "--"
     });
   };
 
@@ -230,12 +221,9 @@ export default function App() {
       lastTime = now;
 
       const newTime = stateRef.current.currentTime + delta;
-
+      
       // Stop and calculate final score when song ends
-      if (
-        stateRef.current.activeSong &&
-        newTime >= stateRef.current.activeSong.duration * 1000
-      ) {
+      if (stateRef.current.activeSong && newTime >= stateRef.current.activeSong.duration * 1000) {
         setIsPlaying(false);
         setCurrentTime(stateRef.current.activeSong.duration * 1000);
         handleSongFinished();
@@ -246,39 +234,21 @@ export default function App() {
 
       // Perform real-time pitch matching & target checks
       if (stateRef.current.activeSong) {
-        const standardMidi = getStandardPitch(
-          stateRef.current.activeSong,
-          newTime,
-        );
+        const standardMidi = getStandardPitch(stateRef.current.activeSong, newTime);
         setTargetMidi(standardMidi);
 
         let pitchResult = null;
-        if (
-          stateRef.current.isMicEnabled &&
-          analyserRef.current &&
-          audioCtxRef.current
-        ) {
+        if (stateRef.current.isMicEnabled && analyserRef.current && audioCtxRef.current) {
           // Hardware vocal detection (Autocorrelation)
-          pitchResult = getCurrentPitch(
-            analyserRef.current,
-            audioCtxRef.current,
-            standardMidi,
-            false,
-          );
+          pitchResult = getCurrentPitch(analyserRef.current, audioCtxRef.current, standardMidi, false);
         } else if (stateRef.current.isSimulatedSinger) {
           // Autopilot simulation coordinates
-          pitchResult = getCurrentPitch(
-            null,
-            null,
-            standardMidi,
-            true,
-            newTime,
-          );
+          pitchResult = getCurrentPitch(null, null, standardMidi, true, newTime);
         }
 
         if (pitchResult) {
           setDetectedPitch(pitchResult);
-
+          
           // Append points dynamically to the historical feedback line
           setUserPitchHistory((prev) => {
             const trimmed = prev.filter((p) => p.time > newTime - 10000); // keep past 10 seconds of history points for memory optimization
@@ -287,8 +257,8 @@ export default function App() {
               {
                 time: newTime,
                 pitch: pitchResult.midi,
-                isMatched: pitchResult.isMatched,
-              },
+                isMatched: pitchResult.isMatched
+              }
             ];
           });
         } else {
@@ -299,21 +269,16 @@ export default function App() {
         // Detect if playhead has advanced past a KrcLine line boundary!
         const lines = stateRef.current.activeSong.krcLines;
         const currentActiveIdx = lines.findIndex(
-          (line) =>
-            newTime >= line.startTime &&
-            newTime <= line.startTime + line.duration,
+          (line) => newTime >= line.startTime && newTime <= line.startTime + line.duration
         );
 
         const currentLineIdx = stateRef.current.scoreState.currentLineIndex;
 
         // Verify if a previous line has been concluded
-        if (currentLineIdx !== -1 && currentActiveIdx !== currentLineIdx) {
+        if (currentLineIdx !== -1 && (currentActiveIdx !== currentLineIdx)) {
           const oldLine = lines[currentLineIdx];
           // Check if playhead has passed beyond the line endpoint
-          if (
-            newTime > oldLine.startTime + oldLine.duration &&
-            stateRef.current.scoreState.lineScores[currentLineIdx] === undefined
-          ) {
+          if (newTime > oldLine.startTime + oldLine.duration && stateRef.current.scoreState.lineScores[currentLineIdx] === undefined) {
             // Compute the getPreviousScore performance and cache it
             // const lineAccuracy = getPreviousScore(
             //   stateRef.current.activeSong,
@@ -325,24 +290,21 @@ export default function App() {
             setScoreState((prev) => {
               const updatedScores = {
                 ...prev.lineScores,
-                [currentLineIdx]: lineAccuracy,
+                [currentLineIdx]: lineAccuracy
               };
 
               // Tally running score
               const activeCount = Object.keys(updatedScores).length;
               let average = 0;
               if (activeCount > 0) {
-                const totalSum = Object.values(updatedScores).reduce(
-                  (a, b) => a + b,
-                  0,
-                );
+                const totalSum = Object.values(updatedScores).reduce((a, b) => a + b, 0);
                 average = Math.round(totalSum / activeCount);
               }
 
               return {
                 ...prev,
                 lineScores: updatedScores,
-                totalScore: average,
+                totalScore: average
               };
             });
           }
@@ -351,7 +313,7 @@ export default function App() {
         if (currentActiveIdx !== -1 && currentActiveIdx !== currentLineIdx) {
           setScoreState((prev) => ({
             ...prev,
-            currentLineIndex: currentActiveIdx,
+            currentLineIndex: currentActiveIdx
           }));
         }
       }
@@ -385,7 +347,7 @@ export default function App() {
       ...prev,
       lineScores: finalScores,
       totalScore: evaluation.pointTotal,
-      rank: evaluation.rank,
+      rank: evaluation.rank
     }));
 
     // Record logs to save the performance
@@ -393,22 +355,18 @@ export default function App() {
       {
         songTitle: activeSong.title,
         artist: activeSong.artist,
-        date: new Date().toLocaleDateString("en-US", {
-          month: "short",
-          day: "numeric",
-          year: "numeric",
-        }),
+        date: new Date().toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }),
         score: evaluation.pointTotal,
-        rank: evaluation.rank,
+        rank: evaluation.rank
       },
-      ...prev,
+      ...prev
     ]);
 
     setShowScoreModal(true);
   };
 
   // Rendering the dynamic pitch grids on the 2D Canvas in real-time
-
+  const canvasElementRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !activeSong) return;
@@ -444,9 +402,7 @@ export default function App() {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(canvasDimensions.width, y);
-      ctx.strokeStyle = isC
-        ? "rgba(0, 243, 255, 0.12)"
-        : "rgba(0, 243, 255, 0.03)";
+      ctx.strokeStyle = isC ? "rgba(0, 243, 255, 0.12)" : "rgba(0, 243, 255, 0.03)";
       ctx.lineWidth = isC ? 1.5 : 1;
       ctx.stroke();
 
@@ -482,22 +438,15 @@ export default function App() {
 
       // Rounded rectangle for note block styling
       ctx.beginPath();
-      ctx.roundRect
-        ? ctx.roundRect(x, y - heightVal / 2, blockWidth, heightVal, 3)
-        : ctx.rect(x, y - heightVal / 2, blockWidth, heightVal);
+      ctx.roundRect ? ctx.roundRect(x, y - heightVal / 2, blockWidth, heightVal, 3) : ctx.rect(x, y - heightVal / 2, blockWidth, heightVal);
       ctx.fill();
       ctx.stroke();
 
       // Glowing overlay if target note overlaps playhead
-      if (
-        currentTime >= block.startTime &&
-        currentTime <= block.startTime + block.duration
-      ) {
+      if (currentTime >= block.startTime && currentTime <= block.startTime + block.duration) {
         ctx.fillStyle = "rgba(0, 243, 255, 0.3)";
         ctx.beginPath();
-        ctx.roundRect
-          ? ctx.roundRect(x, y - heightVal / 2, blockWidth, heightVal, 3)
-          : ctx.rect(x, y - heightVal / 2, blockWidth, heightVal);
+        ctx.roundRect ? ctx.roundRect(x, y - heightVal / 2, blockWidth, heightVal, 3) : ctx.rect(x, y - heightVal / 2, blockWidth, heightVal);
         ctx.fill();
       }
     });
@@ -584,108 +533,36 @@ export default function App() {
       ctx.fillStyle = "rgba(0, 243, 255, 1)";
       ctx.fill();
     }
-  }, [
-    currentTime,
-    activeSong,
-    userPitchHistory,
-    detectedPitch,
-    targetMidi,
-    canvasDimensions,
-  ]);
-  const { handlePlayPause, handleReboot, handleEject, handleToggleSimulation } =
-    useMediaPlayback({
-      activeSong,
-      isPlaying,
-      currentTime,
-      isSimulatedSinger,
-      setIsPlaying,
-      setCurrentTime,
-      setIsSimulatedSinger,
-      setUserPitchHistory,
-      setDetectedPitch,
-      setTargetMidi,
-      setActiveSong,
-      setShowScoreModal,
-      setScoreState,
-    });
 
-  return (
-    <div
-      className="min-h-screen bg-[#030708] text-gray-100 flex flex-col font-sans select-none overflow-x-hidden antialiased selection:bg-cyan-500/30 selection:text-white"
-      id="main_karaoke_room_container"
-    >
-      {/* HEADER SECTION */}
+  }, [currentTime, activeSong, userPitchHistory, detectedPitch, targetMidi, canvasDimensions]);
 
-      <Header
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        sessionLogs={sessionLogs}
-        setShowHelp={setShowHelp}
-      />
+  // Dynamic Lyric Highlight Parsing Helper
+  const currentSentenceBlock = useMemo(() => {
+    if (!activeSong) return null;
 
-      {
-        <div className="grow p-4 lg:p-6 grid grid-cols-1 lg:grid-cols-4 gap-6 overflow-hidden">
-          {/* LEFT PANEL - ALBUM ART & PLAYBACK PERFORMANCE COVERS */}
+    // Detect line index corresponding to current timestamp
+    const lines = activeSong.krcLines;
+    const activeIdx = lines.findIndex(
+      (line) => currentTime >= line.startTime && currentTime <= line.startTime + line.duration
+    );
 
-          <TrackMetadataSection
-            activeSong={activeSong}
-            currentTime={currentTime}
-            isPlaying={isPlaying}
-            isSimulatedSinger={isSimulatedSinger}
-            onPlayPause={handlePlayPause}
-            onReboot={handleReboot}
-            onEject={handleEject}
-            onToggleSimulation={handleToggleSimulation}
-          />
+    // If no exact match, look for the closest upcoming line
+    if (activeIdx === -1) {
+      const nextLineIdx = lines.findIndex((line) => line.startTime > currentTime);
+      return {
+        active: false,
+        previousLine: lines[nextLineIdx - 1] || null,
+        currentLine: lines[nextLineIdx] || null,
+        nextLine: lines[nextLineIdx + 1] || null,
+        sentenceIndex: nextLineIdx
+      };
+    }
 
-          {/* MIDDLE SECTION - PITCH TIMELINE VIEW + SCROLLING TARGET NOTES BLOCK GRID */}
-          <div className="lg:col-span-2 flex flex-col gap-6 overflow-hidden">
-            {/* PITCH TIMELINE MONITOR */}
-            <PitchSection
-              activeSong={activeSong}
-              canvasContainerRef={canvasContainerRef}
-              canvasRef={canvasRef}
-              canvasDimensions={canvasDimensions}
-            />
-
-            {/* TELEPROMPTER LYRIC DESCRIPTIONS SECTION */}
-            {/* section> */}
-            <LyricsSection
-              activeSong={activeSong}
-              currentTime={currentTime}
-              userPitchHistory={userPitchHistory}
-              isSimulatedSinger={isSimulatedSinger}
-              scoreState={scoreState}
-            />
-          </div>
-
-          {/* RIGHT PANEL - MIC INPUT AND REALT-TIME PITCH DELTAS & SONG DOWNLOADER */}
-          <div className="lg:col-span-1 flex flex-col gap-6 overflow-hidden">
-            {/* MIC INPUT UNIT */}
-            <MicInputSection
-              isMicEnabled={isMicEnabled}
-              micVolume={micVolume}
-              micStatusLog={micStatusLog}
-              detectedPitch={detectedPitch}
-              targetMidi={targetMidi}
-              startMicNode={startMicNode}
-              stopMicNode={stopMicNode}
-              getNoteNotation={getNoteNotation}
-              midiToHz={midiToHz}
-            />
-
-            {/* SONG QUEUE / DOWNLOAD ARCHITECTURE MODULE */}
-            <SongQueueSection
-              songLibrary={SONG_LIBRARY}
-              queueStates={queueStates}
-              activeSong={activeSong}
-              handleOrderSong={handleOrderSong}
-              handleSelectSong={handleSelectSong}
-              setShowHelp={setShowHelp}
-            />
-          </div>
-        </div>
-      }
-    </div>
-  );
-}
+    return {
+      active: true,
+      previousLine: lines[activeIdx - 1] || null,
+      currentLine: lines[activeIdx] || null,
+      nextLine: lines[activeIdx + 1] || null,
+      sentenceIndex: activeIdx
+    };
+  }, [activeSong, currentTime]);

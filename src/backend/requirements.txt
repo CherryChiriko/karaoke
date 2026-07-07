@@ -1,0 +1,11 @@
+fastapi==0.115.0
+uvicorn[standard]==0.30.6
+librosa==0.10.2.post1
+soundfile==0.12.1
+numpy==1.26.4
+openai-whisper==20231117
+rapidfuzz==3.9.7
+pydantic==2.9.2
+yt-dlp==2024.8.6
+python-multipart==0.0.9
+requests==2.32.3
